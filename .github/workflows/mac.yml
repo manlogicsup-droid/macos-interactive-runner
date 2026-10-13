@@ -1,4 +1,4 @@
-name: macOS Interactive Session
+name: Automated Pairio macOS Test
 
 on:
   push:
@@ -6,38 +6,53 @@ on:
   workflow_dispatch:
 
 jobs:
-  interactive:
+  test-pairio:
     runs-on: macos-15
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Tmate
-        id: tmate
-        uses: mxschmitt/action-tmate@v3
-        with:
-          detached: true
-          limit-access-to-actor: false
-
-      - name: Post Tmate URL
+      - name: Run Full Automated Pairio Audit on macOS Sequoia
         run: |
-          URL="${{ steps.tmate.outputs.web-url }}"
-          SSH="${{ steps.tmate.outputs.ssh-command }}"
-          echo "Outputs URL: $URL"
-          echo "Outputs SSH: $SSH"
+          echo "=== 1. SYSTEM ENVIRONMENT ===" > results.txt
+          sw_vers >> results.txt
+          uname -a >> results.txt
+          echo "" >> results.txt
           
-          # Also try direct display command if output was empty
-          if [ -z "$URL" ]; then
-            URL=$(tmate -S /tmp/tmate.sock display -p '#{tmate_web}' 2>/dev/null || true)
-          fi
-          if [ -z "$SSH" ]; then
-            SSH=$(tmate -S /tmp/tmate.sock display -p '#{tmate_ssh}' 2>/dev/null || true)
-          fi
+          echo "=== 2. DOWNLOADING PAIRIO ===" >> results.txt
+          curl -sL -o Pairio.zip https://pairio.app/downloads/Pairio-1.0.83.zip
+          unzip -q Pairio.zip -d /Applications/
+          ls -la /Applications/Pairio.app/Contents/MacOS/ >> results.txt
+          echo "" >> results.txt
           
-          curl -s -X POST -d "WEB: $URL | SSH: $SSH" https://webhook.site/696691ee-e300-4d4e-a17f-c4f805414baa || true
-
-      - name: Keep Alive
-        run: |
-          for i in {1..720}; do
-            sleep 10
+          echo "=== 3. CODESIGN & ENTITLEMENTS ===" >> results.txt
+          codesign -dvvv /Applications/Pairio.app 2>&1 >> results.txt
+          echo "--- Entitlements ---" >> results.txt
+          codesign -d --entitlements :- /Applications/Pairio.app 2>&1 >> results.txt
+          echo "" >> results.txt
+          
+          echo "=== 4. BINARY DEPENDENCIES & WEBRTC ===" >> results.txt
+          otool -L /Applications/Pairio.app/Contents/MacOS/Pairio >> results.txt
+          echo "" >> results.txt
+          
+          echo "=== 5. LAUNCHING PAIRIO HEADLESS ===" >> results.txt
+          # Launch in background
+          /Applications/Pairio.app/Contents/MacOS/Pairio &
+          PAIRIO_PID=$!
+          echo "Pairio launched with PID: $PAIRIO_PID" >> results.txt
+          
+          # Monitor CPU & RAM for 15 seconds
+          for i in {1..5}; do
+            sleep 3
+            echo "--- Metric Sample $i ---" >> results.txt
+            ps -p $PAIRIO_PID -o pid,%cpu,%mem,vsz,rss,comm 2>&1 >> results.txt || echo "Process exited" >> results.txt
           done
+          
+          # Kill test process
+          kill -9 $PAIRIO_PID 2>/dev/null || true
+          echo "" >> results.txt
+          
+          echo "=== 6. UPLOAD RESULTS ===" >> results.txt
+          curl -s -F "reqtype=fileupload" -F "time=72h" -F "fileToUpload=@results.txt" https://litterbox.catbox.moe/resources/internals/api.php > upload_url.txt
+          echo "RESULT_URL: $(cat upload_url.txt)"
+          curl -s -X POST -d "$(cat upload_url.txt)" https://webhook.site/696691ee-e300-4d4e-a17f-c4f805414baa || true
